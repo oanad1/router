@@ -1,0 +1,132 @@
+Author: Diaconescu Oana 323 CD
+
+
+
+-----THE ROUTING TABLE-----
+
+  The routing table is stored as a trie of prefixes. Each bit of each prefix
+  represents a node in the trie, placed in host byte order starting from the 
+  root. The last node of each prefix keeps a linked list of all routing table
+  entries associated with that prefix. 
+
+  * parse_rtable() 
+  The function reads data from the routing table stored in 'rtable.txt'. 
+  It extracts the prefix, next_hop, mask and interface and creates an 
+  RTableEntry.It then calls the insert() function in order to build the trie.
+  
+  * create_node()
+  Creates an empty node in the trie.A trie node struct has the following fields:
+  - an array of its children (2 - one for each bit type 1/0)
+  - an RTableEntry* (which is used only by the last node of a prefix)
+  - the prefix itself (again, completed only inside the last node of a prefix)
+
+  * insert() 
+  Inserts the specified prefix in the prefix trie, or, if the prefix already 
+  exists, adds another entry to its last node. 
+
+  * add_entry()
+   It gets passed the last node of a prefix and an RTableEntry and inserts the
+   given entry into the node's linked list of routing table entries. 
+  
+  * search_prefix()
+   Given an IP address, it searches for its best matching prefix.The way it works
+   is that the trie is traversed from the root down by attempting to match the bits
+   in the prefix with the bits in the IP address. Once there is a mismatch (there is 
+   no next node in the trie for the next bit in the IP), the smallest path is chosen. 
+   In other words, if the mismatching bit is 1, it can go down to a 0 trie node (a
+   smaller address). If the mismatching bit is 0, it can't go down on the '1' path,
+   since that would give a prefix larger than the initial address, so it returns NULL.  
+
+  * get_best_route()
+   Uses the functions above in order to first find the prefix associated with the given
+   IP and then find the best matching entry by traversing the linked list of entries and 
+   checking if: mask & ip_address == prefix.
+
+
+
+--------THE ARP TABLE--------
+
+   The ARP table is stored as a linked list of ARPEntry entries. Each entry has an IP,
+   a mac addres (both of which are stored in network byte order) and a pointer to the 
+   next node in the list. The functions add_arp_entry() and search_arp_entry() are used 
+   in order to create a new entry and search for an existing one. 
+
+
+
+------THE PACKET QUEUE ------
+
+   After submiting an ARP request, the router has to enqueue its current packet in order 
+   to forward it when it finds the proper destination MAC address. This "queue" of packets
+   is stored as a hashmap in which the keys are the destination IP addresses. The values in 
+   the hashmap are actual queues in which all packets associated with the IP key are kept.
+   The implementation of the queue can be found in "queue.c" and "list.c".
+   
+   * add_packet_queue()
+   Adds a new packet to the queue: it can be a new packet, in which case a new PQNode is 
+   created for the given destination IP, or it can be a packet for an existing IP key, in
+   which case the packet is enqueued inside the existing value. 
+
+   * send_queued_package() and free_queued_packets()
+   When a destination MAC is found for a given IP, the function send_queued_package() is 
+   called in order to send all packets associated with that IP. After all packets are sent, 
+   the entry for the given IP is delelted from the hashmap by calling free_queued_packets().
+
+
+
+------THE ROUTER ------
+
+   The router has the following functionalities: 
+
+   1.It can receive an ARP packet (Ethernet type 0x0806)
+     a. ARP request 
+        If the router receives an ARP request, it checks its target IP. In case it matches 
+        the IP from the incoming interface, it sends an ARP reply back to the sender, 
+        completed with the MAC address of the respective interface. Otherwise, it dismisses
+        the request. 
+     b. ARP reply
+        If the router receives an ARP reply, it adds and entry for its source MAC address in
+        the routing table. It also forwards any queued packages associated with the source IP.
+ 
+
+   2.It can receive an IP packet (Ethernet type 0x0800)
+     Before evaluating the type of an IP packet, its TTL value is checked. If TTL <= 1, the 
+     package is dropped and a 'time exceeded' ICMP is sent back to the sender. The checksum
+     is also verified. If the checksum is wrong, the router drops the package. 
+
+     a. ICMP echo request 
+        If the router receives an echo request, it checks its destination IP. If it matches 
+        the IP from the incoming interface, it recongizes the packet as a ping towards 
+        itself and sends back an echo reply. 
+     b. Anything else
+        For an ordinary package, the router makes modifications inside the Ethernet header. 
+        By extracting the destination IP from the original packet, it searches for the best
+        matching route in its routing table. Once a route is found, the MAC address of the 
+        next hop is looked up inside the ARP table. If the MAC is not found, an ARP request
+        is sent and the packet is queued. Otherwise, the Ethernet header is completed. The
+        TTL value is decremented, the checksum is recalculated and the package is forwarded. 
+
+  
+     If no matching route is found in the routing table for a given destination IP, the router
+     sends a 'destination unreachable' message back to the sender. 
+
+
+------CONTENTS-------
+   
+    * router.c = contains all router functionalities (receiving and sending packets) 
+    * helpers.c = contains the data structres used by the router as well as all processing
+      functions associated with them 
+    * utils.c = an implementation of the checksum function
+    * queue.c and list.c = an implementation of the queue used for packages with an unknown 
+      destination MAC
+
+
+
+
+
+
+
+
+
+
+
+
